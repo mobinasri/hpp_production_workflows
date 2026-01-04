@@ -166,14 +166,28 @@ task maskContig {
         # each parallel job uses 4 threads, budget 4 threads per job, rounding up
         NPARALLEL=$(( (~{threadCount} + 3) / 4 ))
         
+        LIBDIR_CUSTOM="/opt/RepeatMasker/Libraries"
+
         ## If additional models are passed, add them to the Dfam DB
         ## For example: Add new models from Primate X/Y and Human Y papers 
         ## to Dfam 3.7 (which is included in dfam/tetools:1.85)
         if [ -n "~{additionalRMModels}" ]; then
-            wd=$(pwd)
-            cd /opt/RepeatMasker/Libraries/
-            python3 ../famdb.py -i ./RepeatMaskerLib.h5 append ~{additionalRMModels} --name 'homo_sapiens'
-            cd $wd
+            # Due to this error that occurred while running the workflow with Toil:
+            # Unable to open file (unable to open file: name = '/mnt/miniwdl_task_container/work/RepeatMasker/Libraries/RepeatMaskerLib.h5', errno = 30, error message = 'Read-only file system', flags = 1, o_flags = 2)
+            # Here a copy of the whole folder 'Libraries' is created which will be passed later to the RepeatMasker program
+            LIBDIR_CUSTOM="${PWD}/RepeatMasker/Libraries"
+            mkdir -p ${LIBDIR_CUSTOM}
+            cp -r /opt/RepeatMasker/Libraries/* ${LIBDIR_CUSTOM}/
+
+            # since this symlink exists /opt/RepeatMasker/Libraries/RepeatMaskerLib.h5 -> /opt/RepeatMasker/Libraries/Dfam.h5
+            # and /opt/RepeatMasker/Libraries/Dfam.h5 is read-only, the symlink is deleted and the original file is copied
+            # so /opt/RepeatMasker/famdb.py can modify it
+            # (There might be a cleaner way to do it)
+            rm ${LIBDIR_CUSTOM}/RepeatMaskerLib.h5
+            cp /opt/RepeatMasker/Libraries/Dfam.h5 ${LIBDIR_CUSTOM}/RepeatMaskerLib.h5
+
+            # Update RepeatMaskerLib.h5
+            python3 /opt/RepeatMasker/famdb.py -i ${LIBDIR_CUSTOM}/RepeatMaskerLib.h5 append ~{additionalRMModels} --name 'homo_sapiens'
         fi 
 
         ## -xsmall: output soft mask
@@ -184,7 +198,7 @@ task maskContig {
             ~{subsequence} \
             -species human \
             -xsmall \
-            -libdir /opt/RepeatMasker/Libraries/ \
+            -libdir ${LIBDIR_CUSTOM}/ \
             -align \
             -dir .
 
